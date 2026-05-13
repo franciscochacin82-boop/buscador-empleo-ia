@@ -385,21 +385,47 @@ if page == "🚀 Auto-Aplicar":
 elif page == "🔍 Buscar empleos":
     st.title("🔍 Buscar empleos")
 
-    # ── Search bar ──
-    col1, col2, col3 = st.columns([3, 2, 1])
-    with col1:
-        search_kw = st.text_input("Palabras clave", value="",
-                                  placeholder="ej: marketing, diseñador, recursos humanos, finanzas...")
-    with col2:
-        source_filter = st.selectbox("Fuente",
-                                     ["Todas", "Torre.co", "Remote OK",
-                                      "We Work Remotely", "Computrabajo"])
-    with col3:
+    # ── Row 1: keywords + source + search button ──────────────────────────
+    r1a, r1b, r1c = st.columns([3, 2, 1])
+    with r1a:
+        search_kw = st.text_input(
+            "Palabras clave",
+            value=st.session_state.get("last_kw", ""),
+            placeholder="ej: marketing, diseñador, community manager...",
+            key="search_kw_input",
+        )
+    with r1b:
+        source_filter = st.selectbox(
+            "Fuente",
+            ["Todas", "Torre.co", "Remote OK", "We Work Remotely", "Computrabajo"],
+        )
+    with r1c:
         st.write("")
         st.write("")
         search_btn = st.button("🔎 Buscar", type="primary", use_container_width=True)
 
+    # ── Row 2: scope toggle + negative keywords ────────────────────────────
+    r2a, r2b = st.columns([1, 2])
+    with r2a:
+        scope = st.radio(
+            "Buscar en",
+            ["Solo título", "Todo el contenido"],
+            horizontal=True,
+            help="'Solo título' es más preciso. 'Todo el contenido' busca también en la descripción.",
+        )
+    with r2b:
+        exclude_text = st.text_input(
+            "🚫 Palabras negativas (excluir resultados que contengan estas palabras)",
+            placeholder="ej: support, nurse, driver, sales",
+            key="filter_exclude",
+        )
+
+    st.divider()
+
     if search_btn:
+        if not search_kw.strip():
+            st.warning("Escribe al menos una palabra clave antes de buscar.")
+            st.stop()
         prog = st.progress(0, text="Torre.co...")
         db.upsert_jobs(torre.search(keywords=search_kw))
         prog.progress(25, text="Remote OK...")
@@ -409,25 +435,17 @@ elif page == "🔍 Buscar empleos":
         prog.progress(75, text="Computrabajo Venezuela...")
         db.upsert_jobs(computrabajo.search())
         prog.progress(100, text="¡Listo!")
-        # Carry the search keywords into the filter so results stay relevant
-        st.session_state["filter_display"] = search_kw
+        st.session_state["last_kw"] = search_kw
         st.rerun()
 
     src = "" if source_filter == "Todas" else source_filter
-    fc1, fc2 = st.columns([3, 2])
-    filter_text = fc1.text_input(
-        "🔎 Filtrar resultados",
-        placeholder="ej: marketing, video editor, diseño...",
-        label_visibility="collapsed",
-        key="filter_display",
+    title_only = (scope == "Solo título")
+    jobs = db.get_jobs(
+        search=search_kw,
+        exclude=exclude_text,
+        source=src,
+        title_only=title_only,
     )
-    exclude_text = fc2.text_input(
-        "🚫 Excluir palabras",
-        placeholder="ej: support, nurse, driver...",
-        label_visibility="collapsed",
-        key="filter_exclude",
-    )
-    jobs = db.get_jobs(search=filter_text, exclude=exclude_text, source=src)
 
     if not jobs:
         st.info("No hay empleos guardados aún. Haz clic en **Buscar** para comenzar.")

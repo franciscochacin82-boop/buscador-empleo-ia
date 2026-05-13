@@ -130,7 +130,8 @@ def upsert_jobs(jobs: list[dict]) -> int:
     return inserted
 
 
-def get_jobs(search: str = "", exclude: str = "", source: str = "", only_unsaved: bool = False) -> list[dict]:
+def get_jobs(search: str = "", exclude: str = "", source: str = "",
+             title_only: bool = False, only_unsaved: bool = False) -> list[dict]:
     with get_conn() as conn:
         query = """
             SELECT j.*, a.id as app_id, a.status, a.applied_at
@@ -142,16 +143,19 @@ def get_jobs(search: str = "", exclude: str = "", source: str = "", only_unsaved
         if search:
             words = [w.strip() for w in search.replace(",", " ").split() if len(w.strip()) > 2]
             if words:
-                if len(words) == 1:
+                if title_only:
+                    # Every word must appear in the title
+                    per_word = " AND ".join("j.title LIKE ?" for _ in words)
+                    query += f" AND ({per_word})"
+                    params += [f"%{w}%" for w in words]
+                elif len(words) == 1:
                     # Single word: match in title, tags, or description
                     w = words[0]
                     query += " AND (j.title LIKE ? OR j.tags LIKE ? OR j.description LIKE ?)"
                     params += [f"%{w}%", f"%{w}%", f"%{w}%"]
                 else:
-                    # Multiple words: EVERY word must appear somewhere across
-                    # title + tags + description (cross-field AND).
-                    # This prevents "video" in tags matching "video editar" when
-                    # "editar" appears nowhere in that job.
+                    # Multiple words, full content: every word must appear
+                    # somewhere across title+tags+description (cross-field AND).
                     per_word = " AND ".join(
                         "(j.title LIKE ? OR COALESCE(j.tags,'') LIKE ? OR COALESCE(j.description,'') LIKE ?)"
                         for _ in words
@@ -163,8 +167,8 @@ def get_jobs(search: str = "", exclude: str = "", source: str = "", only_unsaved
         if exclude:
             ex_words = [w.strip() for w in exclude.replace(",", " ").split() if len(w.strip()) > 2]
             for w in ex_words:
-                query += " AND j.title NOT LIKE ? AND j.tags NOT LIKE ?"
-                params += [f"%{w}%", f"%{w}%"]
+                query += " AND j.title NOT LIKE ? AND j.tags NOT LIKE ? AND j.description NOT LIKE ?"
+                params += [f"%{w}%", f"%{w}%", f"%{w}%"]
         if source:
             query += " AND j.source = ?"
             params.append(source)
