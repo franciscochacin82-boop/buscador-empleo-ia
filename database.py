@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import json
 from datetime import datetime
@@ -5,11 +6,34 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "jobs.db"
 
+_HTML_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _strip_html(text: str) -> str:
+    if not text:
+        return text
+    text = _HTML_RE.sub(" ", text)
+    return _WS_RE.sub(" ", text).strip()
+
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _clean_existing_html():
+    """One-time migration: strip HTML from any descriptions already in the DB."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, description FROM jobs WHERE description LIKE '%<%'"
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE jobs SET description=? WHERE id=?",
+                (_strip_html(row["description"]), row["id"]),
+            )
 
 
 def init_db():
@@ -56,6 +80,7 @@ def init_db():
                 updated_at TEXT
             );
         """)
+    _clean_existing_html()
 
 
 # --- Profile ---
@@ -88,6 +113,9 @@ def upsert_jobs(jobs: list[dict]) -> int:
             job.setdefault("found_at", datetime.now().isoformat())
             if isinstance(job.get("tags"), list):
                 job["tags"] = json.dumps(job["tags"])
+            # Always store clean text, no HTML
+            if job.get("description"):
+                job["description"] = _strip_html(job["description"])
             try:
                 conn.execute(
                     """INSERT INTO jobs (source, external_id, title, company, location,
@@ -102,7 +130,7 @@ def upsert_jobs(jobs: list[dict]) -> int:
     return inserted
 
 
-def get_jobs(search: str = "", source: str = "", only_unsaved: bool = False) -> list[dict]:
+def get_jobs(search: str = "", exclude: str = "", source: str = "", only_unsaved: bool = False) -> list[dict]:
     with get_conn() as conn:
         query = """
             SELECT j.*, a.id as app_id, a.status, a.applied_at
@@ -114,13 +142,29 @@ def get_jobs(search: str = "", source: str = "", only_unsaved: bool = False) -> 
         if search:
             words = [w.strip() for w in search.replace(",", " ").split() if len(w.strip()) > 2]
             if words:
-                clauses = " OR ".join(
-                    "(j.title LIKE ? OR j.description LIKE ? OR j.tags LIKE ?)"
-                    for _ in words
-                )
-                query += f" AND ({clauses})"
-                for w in words:
+                if len(words) == 1:
+                    # Single word: match in title, tags, or description
+                    w = words[0]
+                    query += " AND (j.title LIKE ? OR j.tags LIKE ? OR j.description LIKE ?)"
                     params += [f"%{w}%", f"%{w}%", f"%{w}%"]
+                else:
+                    # Multiple words: EVERY word must appear somewhere across
+                    # title + tags + description (cross-field AND).
+                    # This prevents "video" in tags matching "video editar" when
+                    # "editar" appears nowhere in that job.
+                    per_word = " AND ".join(
+                        "(j.title LIKE ? OR COALESCE(j.tags,'') LIKE ? OR COALESCE(j.description,'') LIKE ?)"
+                        for _ in words
+                    )
+                    query += f" AND ({per_word})"
+                    for w in words:
+                        params += [f"%{w}%", f"%{w}%", f"%{w}%"]
+
+        if exclude:
+            ex_words = [w.strip() for w in exclude.replace(",", " ").split() if len(w.strip()) > 2]
+            for w in ex_words:
+                query += " AND j.title NOT LIKE ? AND j.tags NOT LIKE ?"
+                params += [f"%{w}%", f"%{w}%"]
         if source:
             query += " AND j.source = ?"
             params.append(source)

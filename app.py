@@ -5,12 +5,23 @@ import streamlit as st
 import os
 from datetime import datetime
 
+import re
 import database as db
 import cover_letter as cl
 import document_generator as dg
 import email_sender as es
 import auto_pipeline
 from scrapers import torre, remoteok, wwr, computrabajo
+
+_HTML_TAG = re.compile(r"<[^>]+>")
+_WHITESPACE = re.compile(r"\s+")
+
+def _clean(text: str) -> str:
+    """Strip any residual HTML tags from a string before display."""
+    if not text:
+        return ""
+    text = _HTML_TAG.sub(" ", text)
+    return _WHITESPACE.sub(" ", text).strip()
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -403,13 +414,20 @@ elif page == "🔍 Buscar empleos":
         st.rerun()
 
     src = "" if source_filter == "Todas" else source_filter
-    filter_text = st.text_input(
+    fc1, fc2 = st.columns([3, 2])
+    filter_text = fc1.text_input(
         "🔎 Filtrar resultados",
-        placeholder="ej: marketing, diseñador, recursos humanos...",
+        placeholder="ej: marketing, video editor, diseño...",
         label_visibility="collapsed",
         key="filter_display",
     )
-    jobs = db.get_jobs(search=filter_text, source=src)
+    exclude_text = fc2.text_input(
+        "🚫 Excluir palabras",
+        placeholder="ej: support, nurse, driver...",
+        label_visibility="collapsed",
+        key="filter_exclude",
+    )
+    jobs = db.get_jobs(search=filter_text, exclude=exclude_text, source=src)
 
     if not jobs:
         st.info("No hay empleos guardados aún. Haz clic en **Buscar** para comenzar.")
@@ -467,8 +485,8 @@ elif page == "🔍 Buscar empleos":
                     if isinstance(tags, list) and tags:
                         st.markdown("🏷️ " + "  ".join(f"`{t}`" for t in tags[:8]))
                     if job.get("description"):
-                        desc = job["description"][:700]
-                        st.markdown(desc + ("…" if len(job["description"]) > 700 else ""))
+                        desc = _clean(job["description"])
+                        st.markdown(desc[:700] + ("…" if len(desc) > 700 else ""))
 
                 with right:
                     st.markdown(f"[🔗 Ver vacante]({job['url']})")
