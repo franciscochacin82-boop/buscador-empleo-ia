@@ -222,7 +222,8 @@ if page == "🚀 Auto-Aplicar":
     with col_cfg:
         st.subheader("Configuración")
         kw = st.text_input("Palabras clave de búsqueda",
-                           value="marketing comunicaciones",
+                           value="",
+                           placeholder="ej: marketing, comunicaciones, finanzas, diseño...",
                            key="auto_kw")
         only_new = st.checkbox("Solo vacantes nuevas (omitir las ya aplicadas)", value=True)
 
@@ -376,8 +377,8 @@ elif page == "🔍 Buscar empleos":
     # ── Search bar ──
     col1, col2, col3 = st.columns([3, 2, 1])
     with col1:
-        search_kw = st.text_input("Palabras clave", value="marketing comunicaciones",
-                                  placeholder="community manager, relaciones públicas...")
+        search_kw = st.text_input("Palabras clave", value="",
+                                  placeholder="ej: marketing, diseñador, recursos humanos, finanzas...")
     with col2:
         source_filter = st.selectbox("Fuente",
                                      ["Todas", "Torre.co", "Remote OK",
@@ -397,12 +398,17 @@ elif page == "🔍 Buscar empleos":
         prog.progress(75, text="Computrabajo Venezuela...")
         db.upsert_jobs(computrabajo.search())
         prog.progress(100, text="¡Listo!")
+        # Carry the search keywords into the filter so results stay relevant
+        st.session_state["filter_display"] = search_kw
         st.rerun()
 
-    # Separate filter for displayed results (doesn't affect scraper keywords)
     src = "" if source_filter == "Todas" else source_filter
-    filter_text = st.text_input("🔎 Filtrar resultados", placeholder="filtrar por título, empresa...",
-                                label_visibility="collapsed", key="filter_display")
+    filter_text = st.text_input(
+        "🔎 Filtrar resultados",
+        placeholder="ej: marketing, diseñador, recursos humanos...",
+        label_visibility="collapsed",
+        key="filter_display",
+    )
     jobs = db.get_jobs(search=filter_text, source=src)
 
     if not jobs:

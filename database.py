@@ -112,8 +112,15 @@ def get_jobs(search: str = "", source: str = "", only_unsaved: bool = False) -> 
         """
         params = []
         if search:
-            query += " AND (j.title LIKE ? OR j.company LIKE ? OR j.description LIKE ?)"
-            params += [f"%{search}%"] * 3
+            words = [w.strip() for w in search.replace(",", " ").split() if len(w.strip()) > 2]
+            if words:
+                clauses = " OR ".join(
+                    "(j.title LIKE ? OR j.description LIKE ? OR j.tags LIKE ?)"
+                    for _ in words
+                )
+                query += f" AND ({clauses})"
+                for w in words:
+                    params += [f"%{w}%", f"%{w}%", f"%{w}%"]
         if source:
             query += " AND j.source = ?"
             params.append(source)

@@ -1,7 +1,12 @@
 """
 Remote OK public JSON API — remote jobs worldwide, good USD salaries.
 """
+import re
 import requests
+
+def _clean(text: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", text or "")
+    return re.sub(r"\s+", " ", text).strip()
 
 API_URL = "https://remoteok.com/api"
 COMM_TAGS = {"marketing", "communications", "content", "social-media", "pr",
@@ -46,7 +51,7 @@ def search(keywords: str = "marketing") -> list[dict]:
                 "location": "100% Remoto",
                 "job_type": "Remoto",
                 "salary": salary,
-                "description": job.get("description", ""),
+                "description": _clean(job.get("description", "")),
                 "url": job.get("url", f"https://remoteok.com/remote-jobs/{job['id']}"),
                 "tags": job.get("tags", []),
             })

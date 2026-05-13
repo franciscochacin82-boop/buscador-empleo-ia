@@ -2,7 +2,13 @@
 Torre.co public API — best job board for Latin America.
 Docs: https://torre.ai/api/
 """
+import re
 import requests
+
+def _clean(text: str) -> str:
+    """Strip HTML tags and collapse whitespace."""
+    text = re.sub(r"<[^>]+>", " ", text or "")
+    return re.sub(r"\s+", " ", text).strip()
 
 SEARCH_URL = "https://torre.ai/api/opportunities/_search"
 
@@ -54,7 +60,7 @@ def _fetch(payload: dict) -> list[dict]:
                 "location": loc_str,
                 "job_type": "Remoto" if opp.get("remote") else opp.get("type", ""),
                 "salary": _salary(opp),
-                "description": opp.get("details", ""),
+                "description": _clean(opp.get("details", "")),
                 "url": f"https://torre.ai/jobs/{opp.get('publicId', opp.get('id', ''))}",
                 "tags": [s.get("name", "") for s in opp.get("skills", [])],
             })
