@@ -18,7 +18,10 @@ import database as db
 import cover_letter as cl
 import document_generator as dg
 import email_sender as es
-from scrapers import torre, remoteok, wwr, computrabajo
+from scrapers import (
+    torre, remoteok, wwr, computrabajo,
+    remotive, workingnomads, bumeran, opcionempleo, indeed, glassdoor,
+)
 
 EMAIL_RE = re.compile(
     r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"
@@ -57,17 +60,24 @@ def run(
     smtp_ready = bool(smtp_email and smtp_pass)
 
     # ── Step 1: Search all boards ─────────────────────────────────────────
-    log("🔍 Buscando en Torre.co…")
-    db.upsert_jobs(torre.search(keywords=keywords))
-
-    log("🔍 Buscando en Remote OK…")
-    db.upsert_jobs(remoteok.search(keywords=keywords))
-
-    log("🔍 Buscando en We Work Remotely…")
-    db.upsert_jobs(wwr.search())
-
-    log("🔍 Buscando en Computrabajo Venezuela…")
-    db.upsert_jobs(computrabajo.search())
+    SCRAPERS = [
+        ("Torre.co",           lambda: torre.search(keywords=keywords)),
+        ("Remote OK",          lambda: remoteok.search(keywords=keywords)),
+        ("We Work Remotely",   lambda: wwr.search()),
+        ("Computrabajo VE",    lambda: computrabajo.search()),
+        ("Remotive",           lambda: remotive.search(keywords=keywords)),
+        ("Working Nomads",     lambda: workingnomads.search(keywords=keywords)),
+        ("Bumeran VE",         lambda: bumeran.search(keywords=keywords)),
+        ("OpcionEmpleo VE",    lambda: opcionempleo.search(keywords=keywords)),
+        ("Indeed",             lambda: indeed.search(keywords=keywords)),
+        ("Glassdoor",          lambda: glassdoor.search(keywords=keywords)),
+    ]
+    for name, fn in SCRAPERS:
+        log(f"🔍 Buscando en {name}…")
+        try:
+            db.upsert_jobs(fn())
+        except Exception as e:
+            log(f"  ⚠️ {name} falló: {e}")
 
     all_jobs = db.get_jobs()
     if only_new:

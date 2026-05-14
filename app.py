@@ -11,7 +11,10 @@ import cover_letter as cl
 import document_generator as dg
 import email_sender as es
 import auto_pipeline
-from scrapers import torre, remoteok, wwr, computrabajo
+from scrapers import (
+    torre, remoteok, wwr, computrabajo,
+    remotive, workingnomads, bumeran, opcionempleo, indeed, glassdoor,
+)
 
 _HTML_TAG = re.compile(r"<[^>]+>")
 _WHITESPACE = re.compile(r"\s+")
@@ -397,7 +400,12 @@ elif page == "🔍 Buscar empleos":
     with r1b:
         source_filter = st.selectbox(
             "Fuente",
-            ["Todas", "Torre.co", "Remote OK", "We Work Remotely", "Computrabajo"],
+            [
+                "Todas",
+                "Torre.co", "Remote OK", "We Work Remotely", "Remotive",
+                "Working Nomads", "Indeed", "Glassdoor",
+                "Computrabajo", "Bumeran", "OpcionEmpleo",
+            ],
         )
     with r1c:
         st.write("")
@@ -426,15 +434,29 @@ elif page == "🔍 Buscar empleos":
         if not search_kw.strip():
             st.warning("Escribe al menos una palabra clave antes de buscar.")
             st.stop()
-        prog = st.progress(0, text="Torre.co...")
-        db.upsert_jobs(torre.search(keywords=search_kw))
-        prog.progress(25, text="Remote OK...")
-        db.upsert_jobs(remoteok.search(keywords=search_kw))
-        prog.progress(50, text="We Work Remotely...")
-        db.upsert_jobs(wwr.search())
-        prog.progress(75, text="Computrabajo Venezuela...")
-        db.upsert_jobs(computrabajo.search())
-        prog.progress(100, text="¡Listo!")
+
+        SCRAPERS = [
+            ("Torre.co",         lambda: torre.search(keywords=search_kw)),
+            ("Remote OK",        lambda: remoteok.search(keywords=search_kw)),
+            ("Remotive",         lambda: remotive.search(keywords=search_kw)),
+            ("Working Nomads",   lambda: workingnomads.search(keywords=search_kw)),
+            ("Indeed",           lambda: indeed.search(keywords=search_kw)),
+            ("We Work Remotely", lambda: wwr.search()),
+            ("Glassdoor",        lambda: glassdoor.search(keywords=search_kw)),
+            ("Computrabajo VE",  lambda: computrabajo.search()),
+            ("Bumeran VE",       lambda: bumeran.search(keywords=search_kw)),
+            ("OpcionEmpleo VE",  lambda: opcionempleo.search(keywords=search_kw)),
+        ]
+        prog = st.progress(0)
+        total = len(SCRAPERS)
+        new_count = 0
+        for i, (name, fn) in enumerate(SCRAPERS):
+            prog.progress(int(i / total * 100), text=f"Buscando en {name}…")
+            try:
+                new_count += db.upsert_jobs(fn())
+            except Exception as e:
+                pass  # silent fail — scraper issues shouldn't block the others
+        prog.progress(100, text=f"¡Listo! {new_count} nuevas vacantes encontradas.")
         st.session_state["last_kw"] = search_kw
         st.rerun()
 
