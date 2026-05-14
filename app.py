@@ -256,28 +256,47 @@ if page == "🚀 Auto-Aplicar":
         st.session_state.setdefault(k, "")
 
     PORTALS = [
-        ("🔵 Indeed",               "indeed_email", "indeed_pass",
-         "Busca + Easy Apply", "https://secure.indeed.com/account/register"),
-        ("🟢 Glassdoor",            "gd_email",     "gd_pass",
-         "Busca + Easy Apply", "https://www.glassdoor.com/profile/join.htm"),
-        ("🗼 Torre.co",             "torre_email",  "torre_pass",
-         "Apply directo", "https://torre.ai/register"),
-        ("🇻🇪 Computrabajo VE",      "ct_email",     "ct_pass",
-         "Apply directo", "https://www.computrabajo.com.ve/registrarse"),
+        (
+            "🔵 Indeed",
+            "indeed_email", "indeed_pass",
+            "Llena un formulario dentro del sitio web de Indeed. "
+            "El sistema completa los campos automáticamente y envía la solicitud sin salir de Indeed.",
+            "https://secure.indeed.com/account/register",
+        ),
+        (
+            "🟢 Glassdoor",
+            "gd_email", "gd_pass",
+            "Igual que Indeed — el sistema llena el formulario de Glassdoor y lo envía desde adentro del sitio.",
+            "https://www.glassdoor.com/profile/join.htm",
+        ),
+        (
+            "🗼 Torre.co",
+            "torre_email", "torre_pass",
+            "Tu perfil ya está guardado en Torre.co. El sistema solo hace clic en 'Apply' — "
+            "sin formulario que llenar.",
+            "https://torre.ai/register",
+        ),
+        (
+            "🇻🇪 Computrabajo Venezuela",
+            "ct_email", "ct_pass",
+            "Igual que Torre — el sistema hace clic en 'Postularme' con tu perfil guardado. "
+            "Sin pasos adicionales.",
+            "https://www.computrabajo.com.ve/registrarse",
+        ),
     ]
 
     cols = st.columns(2)
-    for idx, (name, e_key, p_key, usage, register_url) in enumerate(PORTALS):
+    for idx, (name, e_key, p_key, description, register_url) in enumerate(PORTALS):
         with cols[idx % 2]:
             with st.container(border=True):
                 configured = bool(st.session_state.get(e_key) and st.session_state.get(p_key))
                 st.markdown(f"**{name}** {'✅' if configured else ''}")
-                st.caption(usage)
+                st.caption(description)
                 st.text_input("Email", key=e_key, placeholder="tu@email.com",
                               label_visibility="collapsed")
                 st.text_input("Contraseña", key=p_key, type="password",
                               placeholder="contraseña", label_visibility="collapsed")
-                st.caption(f"[Crear cuenta →]({register_url})")
+                st.caption(f"[Crear cuenta gratis →]({register_url})")
 
     st.divider()
 
