@@ -1,79 +1,145 @@
 """
-Indeed RSS feed scraper — returns recent job postings.
-Indeed aggressively blocks bots; this uses their RSS endpoint which is more lenient.
+Indeed scraper using Playwright (no login required for search).
+The RSS endpoint is blocked; Playwright renders the page properly.
 """
 import re
-import xml.etree.ElementTree as ET
-import requests
 
-RSS_URL = "https://www.indeed.com/rss"
+_HTML_RE = re.compile(r"<[^>]+>")
+
 
 def _clean(text: str) -> str:
-    text = re.sub(r"<[^>]+>", " ", text or "")
-    return re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", _HTML_RE.sub(" ", text or "")).strip()
 
 
 def search(keywords: str = "marketing", location: str = "", limit: int = 25) -> list[dict]:
-    # Try main site then Venezuela-specific domain
-    for base in ["https://www.indeed.com/rss", "https://ve.indeed.com/rss"]:
-        for loc in [location, "remote", ""]:
-            jobs = _fetch(keywords, loc, limit, rss_base=base)
-            if jobs:
-                return jobs
-    return []
-
-
-def _fetch(keywords: str, location: str, limit: int, rss_base: str = RSS_URL) -> list[dict]:
     try:
-        params = {"q": keywords, "sort": "date", "limit": limit}
-        if location:
-            params["l"] = location
-        headers = {
-            "User-Agent": (
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        print("[Indeed] Playwright not installed — skipping")
+        return []
+
+    jobs = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        ctx = browser.new_context(
+            user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "Accept": "application/rss+xml, application/xml, text/xml",
-            "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
-        }
-        resp = requests.get(rss_base, params=params, headers=headers, timeout=15)
-        if resp.status_code != 200:
-            return []
+            locale="en-US",
+        )
+        ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        page = ctx.new_page()
+        try:
+            url = f"https://www.indeed.com/jobs?q={keywords}&sort=date"
+            if location:
+                url += f"&l={location}"
+            page.goto(url, timeout=25000)
+            page.wait_for_load_state("networkidle", timeout=15000)
 
-        root = ET.fromstring(resp.content)
-        items = root.findall(".//item")
-        jobs = []
-        for item in items:
-            title_raw = item.findtext("title") or ""
-            link = item.findtext("link") or ""
-            desc_raw = item.findtext("description") or ""
+            # Dismiss cookie / consent banners
+            for sel in [
+                "button#onetrust-accept-btn-handler",
+                "button:has-text('Accept all')",
+                "button:has-text('Accept')",
+                "[aria-label='close']",
+            ]:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.is_visible(timeout=2000):
+                        btn.click()
+                except Exception:
+                    pass
 
-            # Indeed format: "Job Title - Company Name - Location"
-            parts = title_raw.split(" - ")
-            job_title = parts[0].strip() if parts else title_raw
-            company = parts[1].strip() if len(parts) > 1 else "Empresa desconocida"
-            loc_str = parts[2].strip() if len(parts) > 2 else (location or "Remoto")
+            # Wait for job cards
+            try:
+                page.wait_for_selector(
+                    "li.css-1ac2h1w, .job_seen_beacon, li[data-jk]",
+                    timeout=10000,
+                )
+            except PWTimeout:
+                print("[Indeed] No job cards found — may be blocked")
+                return []
 
-            ext_id = ""
-            if "jk=" in link:
-                ext_id = link.split("jk=")[1][:20]
-            else:
-                ext_id = link[-30:]
+            cards = page.locator(
+                "li.css-1ac2h1w, .job_seen_beacon, li[data-jk]"
+            ).all()[:limit]
 
-            jobs.append({
-                "source": "Indeed",
-                "external_id": ext_id,
-                "title": job_title,
-                "company": company,
-                "location": loc_str,
-                "job_type": "",
-                "salary": "",
-                "description": _clean(desc_raw)[:1500],
-                "url": link,
-                "tags": [],
-            })
-        return jobs
-    except Exception as e:
-        print(f"[Indeed] Error: {e}")
-        return []
+            for card in cards:
+                try:
+                    title_el = card.locator(
+                        "h2.jobTitle span[title], h2 span[title], h2 a span"
+                    ).first
+                    company_el = card.locator(
+                        "[data-testid='company-name'], .companyName, .css-63koeb"
+                    ).first
+                    link_el = card.locator("a[href*='jk='], h2 a").first
+                    loc_el = card.locator(
+                        "[data-testid='text-location'], .companyLocation"
+                    ).first
+                    salary_el = card.locator(
+                        "[data-testid='attribute_snippet_testid'], .salary-snippet"
+                    ).first
+
+                    title = ""
+                    try:
+                        title = title_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    company = ""
+                    try:
+                        company = company_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    href = link_el.get_attribute("href") or ""
+                    if href and not href.startswith("http"):
+                        href = "https://www.indeed.com" + href
+
+                    loc_str = ""
+                    try:
+                        loc_str = loc_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    salary = ""
+                    try:
+                        salary = salary_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    ext_id = ""
+                    if "jk=" in href:
+                        ext_id = href.split("jk=")[1][:20]
+                    if not ext_id:
+                        ext_id = re.sub(r"[^a-zA-Z0-9]", "", href)[-20:]
+
+                    if title and href:
+                        jobs.append({
+                            "source": "Indeed",
+                            "external_id": ext_id,
+                            "title": title,
+                            "company": company or "Empresa desconocida",
+                            "location": loc_str or location or "Remoto",
+                            "job_type": "",
+                            "salary": salary,
+                            "description": "",
+                            "url": href,
+                            "tags": [],
+                        })
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"[Indeed] Error: {e}")
+        finally:
+            browser.close()
+
+    return jobs

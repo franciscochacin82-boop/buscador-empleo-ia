@@ -1,87 +1,144 @@
 """
-Glassdoor job scraper — uses their search page.
-NOTE: Glassdoor heavily protects against scraping.
-This works on a best-effort basis; returns empty list if blocked.
+Glassdoor scraper using Playwright (no login required for search).
+The site is JavaScript-rendered — requests-based scraping gets an empty shell.
 """
 import re
-import requests
-from bs4 import BeautifulSoup
-
-BASE_URL = "https://www.glassdoor.com"
-SEARCH_URL = f"{BASE_URL}/Job/jobs.htm"
 
 
-def _clean(text: str) -> str:
-    text = re.sub(r"<[^>]+>", " ", text or "")
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def search(keywords: str = "marketing", location: str = "") -> list[dict]:
+def search(keywords: str = "marketing", location: str = "", limit: int = 25) -> list[dict]:
     try:
-        params = {
-            "sc.keyword": keywords,
-            "locT": "N",
-            "suggestChosen": "false",
-            "clickSource": "searchBtn",
-        }
-        if location:
-            params["sc.location"] = location
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        print("[Glassdoor] Playwright not installed — skipping")
+        return []
 
-        headers = {
-            "User-Agent": (
+    jobs = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        ctx = browser.new_context(
+            user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Referer": "https://www.glassdoor.com/",
-        }
-        resp = requests.get(SEARCH_URL, params=params, headers=headers, timeout=15)
-        if resp.status_code != 200:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        cards = (
-            soup.select("li.react-job-listing")
-            or soup.select("[data-test='jobListing']")
-            or soup.select(".JobCard_jobCardContent__o7Lph")
-            or soup.select("article.JobCard")
+            locale="en-US",
         )
+        ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        page = ctx.new_page()
+        try:
+            url = f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={keywords}&fromAge=14"
+            if location:
+                url += f"&locT=C&locKeyword={location}"
+            page.goto(url, timeout=25000)
+            page.wait_for_load_state("networkidle", timeout=15000)
 
-        jobs = []
-        seen = set()
-        for card in cards[:20]:
-            link_el = card.select_one("a[href*='/job-listing/']") or card.select_one("a[data-test='job-link']")
-            title_el = card.select_one("[data-test='job-title'], .JobCard_seoLink__WdqHZ, h3")
-            company_el = card.select_one("[data-test='employer-name'], .EmployerProfile_compactEmployerName__9MGcV")
-            loc_el = card.select_one("[data-test='emp-location'], .JobCard_location__rCz3x")
+            # Dismiss modals / login walls / cookie banners
+            for sel in [
+                "button[data-test='modal-close-btn']",
+                "button[aria-label='Close']",
+                "button:has-text('Close')",
+                "button#onetrust-accept-btn-handler",
+                "[class*='modal'] button",
+            ]:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.is_visible(timeout=2000):
+                        btn.click()
+                except Exception:
+                    pass
 
-            if not title_el:
-                continue
+            # Wait for job cards
+            card_sel = (
+                "li.react-job-listing, "
+                "article[data-id], "
+                "[data-test='jobListing'], "
+                "li[class*='JobsList']"
+            )
+            try:
+                page.wait_for_selector(card_sel, timeout=10000)
+            except PWTimeout:
+                print("[Glassdoor] No job cards found — may be blocked or login-walled")
+                return []
 
-            href = link_el.get("href", "") if link_el else ""
-            full_url = href if href.startswith("http") else f"{BASE_URL}{href}"
-            ext_id = re.search(r"jobListingId=(\d+)", href)
-            ext_id = ext_id.group(1) if ext_id else href[-20:]
+            cards = page.locator(card_sel).all()[:limit]
 
-            if ext_id in seen:
-                continue
-            seen.add(ext_id)
+            for card in cards:
+                try:
+                    title_el = card.locator(
+                        "[data-test='job-title'], h3.JobCard_jobTitle__GLyJ1, h3, h2"
+                    ).first
+                    company_el = card.locator(
+                        "[data-test='employer-name'], "
+                        ".EmployerProfile_compactEmployerName__9MGcV, "
+                        "[class*='employerName']"
+                    ).first
+                    link_el = card.locator("a").first
+                    loc_el = card.locator(
+                        "[data-test='emp-location'], [class*='location']"
+                    ).first
+                    salary_el = card.locator(
+                        "[data-test='detailSalary'], [class*='salary']"
+                    ).first
 
-            jobs.append({
-                "source": "Glassdoor",
-                "external_id": ext_id,
-                "title": title_el.get_text(strip=True),
-                "company": company_el.get_text(strip=True) if company_el else "Empresa desconocida",
-                "location": loc_el.get_text(strip=True) if loc_el else (location or "No especificado"),
-                "job_type": "",
-                "salary": "",
-                "description": "",
-                "url": full_url,
-                "tags": [],
-            })
-        return jobs
-    except Exception as e:
-        print(f"[Glassdoor] Error: {e}")
-        return []
+                    title = ""
+                    try:
+                        title = title_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    company = ""
+                    try:
+                        company = company_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    href = link_el.get_attribute("href") or ""
+                    if href and not href.startswith("http"):
+                        href = "https://www.glassdoor.com" + href
+
+                    loc_str = ""
+                    try:
+                        loc_str = loc_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    salary = ""
+                    try:
+                        salary = salary_el.inner_text(timeout=2000).strip()
+                    except Exception:
+                        pass
+
+                    ext_id = ""
+                    m = re.search(r"jobListingId=(\d+)", href)
+                    if m:
+                        ext_id = m.group(1)
+                    else:
+                        ext_id = re.sub(r"[^a-zA-Z0-9]", "", href)[-20:]
+
+                    if title and href:
+                        jobs.append({
+                            "source": "Glassdoor",
+                            "external_id": ext_id,
+                            "title": title,
+                            "company": company or "Empresa desconocida",
+                            "location": loc_str or location or "No especificado",
+                            "job_type": "",
+                            "salary": salary,
+                            "description": "",
+                            "url": href,
+                            "tags": [],
+                        })
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"[Glassdoor] Error: {e}")
+        finally:
+            browser.close()
+
+    return jobs
