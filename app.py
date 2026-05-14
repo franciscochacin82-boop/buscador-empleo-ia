@@ -66,25 +66,39 @@ with st.sidebar:
     st.divider()
 
     # ── Email / SMTP ──
-    with st.expander("📧 Configurar email (auto-aplicar)"):
-        if "smtp_email" not in st.session_state:
-            st.session_state["smtp_email"] = ""
-        if "smtp_pass" not in st.session_state:
-            st.session_state["smtp_pass"] = ""
-
-        st.text_input("Tu email (remitente)", key="smtp_email",
-                      placeholder="tucorreo@gmail.com")
-        st.text_input("Contraseña de aplicación", key="smtp_pass",
-                      type="password",
-                      help="Gmail: myaccount.google.com → Seguridad → Contraseñas de aplicaciones")
-        smtp_host = st.text_input("Servidor SMTP", value="smtp.gmail.com",
-                                  key="smtp_host")
-        smtp_port = st.number_input("Puerto", value=587, key="smtp_port")
-
+    with st.expander("📧 Email (para enviar solicitudes)"):
+        for k in ["smtp_email", "smtp_pass", "smtp_host"]:
+            st.session_state.setdefault(k, "" if k != "smtp_host" else "smtp.gmail.com")
+        st.text_input("Tu email (remitente)", key="smtp_email", placeholder="tucorreo@gmail.com")
+        st.text_input("Contraseña de aplicación", key="smtp_pass", type="password",
+                      help="Gmail → myaccount.google.com → Seguridad → Contraseñas de aplicaciones")
+        st.text_input("Servidor SMTP", key="smtp_host")
+        st.session_state.setdefault("smtp_port", 587)
+        st.number_input("Puerto", key="smtp_port")
         if st.session_state.get("smtp_email") and st.session_state.get("smtp_pass"):
-            st.success("Email configurado ✓")
+            st.success("✓ Email configurado")
         else:
-            st.caption("Completa estos campos para poder enviar solicitudes por email.")
+            st.caption("Necesario para enviar solicitudes por email.")
+
+    # ── Indeed ──
+    with st.expander("🔵 Indeed — Easy Apply"):
+        st.caption("Necesario para auto-aplicar en Indeed con Easy Apply.")
+        for k in ["indeed_email", "indeed_pass"]:
+            st.session_state.setdefault(k, "")
+        st.text_input("Email de Indeed", key="indeed_email", placeholder="tucorreo@gmail.com")
+        st.text_input("Contraseña de Indeed", key="indeed_pass", type="password")
+        if st.session_state.get("indeed_email") and st.session_state.get("indeed_pass"):
+            st.success("✓ Indeed configurado")
+
+    # ── Glassdoor ──
+    with st.expander("🟢 Glassdoor — Easy Apply"):
+        st.caption("Necesario para auto-aplicar en Glassdoor con Easy Apply.")
+        for k in ["gd_email", "gd_pass"]:
+            st.session_state.setdefault(k, "")
+        st.text_input("Email de Glassdoor", key="gd_email", placeholder="tucorreo@gmail.com")
+        st.text_input("Contraseña de Glassdoor", key="gd_pass", type="password")
+        if st.session_state.get("gd_email") and st.session_state.get("gd_pass"):
+            st.success("✓ Glassdoor configurado")
 
     st.divider()
 
@@ -214,24 +228,33 @@ if page == "🚀 Auto-Aplicar":
     st.divider()
 
     # ── Pre-flight checks ─────────────────────────────────────────────────
+    indeed_ready = bool(st.session_state.get("indeed_email") and st.session_state.get("indeed_pass"))
+    gd_ready = bool(st.session_state.get("gd_email") and st.session_state.get("gd_pass"))
+
     checks = {
         "👤 Perfil completo": bool(profile and profile.get("name") and profile.get("summary")),
         "🔑 API Key de IA": bool(os.getenv("ANTHROPIC_API_KEY")),
         "📧 Email configurado": smtp_ready(),
     }
-    all_ready = all(checks.values())
+    all_ready = checks["👤 Perfil completo"]  # only profile is hard required
 
     col_chk, col_cfg = st.columns([1, 1])
     with col_chk:
         st.subheader("Estado")
         for label, ok in checks.items():
             st.markdown(f"{'✅' if ok else '❌'} {label}")
+        st.markdown(f"{'✅' if indeed_ready else '⬜'} 🔵 Indeed Easy Apply")
+        st.markdown(f"{'✅' if gd_ready else '⬜'} 🟢 Glassdoor Easy Apply")
         if not checks["👤 Perfil completo"]:
             st.caption("→ Ve a **👤 Mi perfil** y completa tu información")
         if not checks["🔑 API Key de IA"]:
             st.caption("→ Pega tu Anthropic API Key en la barra lateral")
         if not checks["📧 Email configurado"]:
-            st.caption("→ Abre **📧 Configurar email** en la barra lateral")
+            st.caption("→ Abre **📧 Email** en la barra lateral")
+        if not indeed_ready:
+            st.caption("→ Abre **🔵 Indeed** en la barra lateral para Easy Apply")
+        if not gd_ready:
+            st.caption("→ Abre **🟢 Glassdoor** en la barra lateral para Easy Apply")
 
     with col_cfg:
         st.subheader("Configuración")
@@ -300,19 +323,10 @@ if page == "🚀 Auto-Aplicar":
             log_box.text_area("Log", value="\n".join(log_lines[-40:]),
                               height=260, label_visibility="collapsed")
 
-        torre_creds = None
-        if st.session_state.get("torre_email") and st.session_state.get("torre_pass"):
-            torre_creds = {
-                "email": st.session_state["torre_email"],
-                "password": st.session_state["torre_pass"],
-            }
-
-        ct_creds = None
-        if st.session_state.get("ct_email") and st.session_state.get("ct_pass"):
-            ct_creds = {
-                "email": st.session_state["ct_email"],
-                "password": st.session_state["ct_pass"],
-            }
+        def _creds(e_key, p_key):
+            e = st.session_state.get(e_key, "")
+            pw = st.session_state.get(p_key, "")
+            return {"email": e, "password": pw} if e and pw else None
 
         with st.spinner("Auto-aplicación en curso…"):
             results = auto_pipeline.run(
@@ -322,8 +336,10 @@ if page == "🚀 Auto-Aplicar":
                 smtp_host=st.session_state.get("smtp_host", "smtp.gmail.com"),
                 smtp_port=int(st.session_state.get("smtp_port", 587)),
                 keywords=kw,
-                torre_creds=torre_creds,
-                computrabajo_creds=ct_creds,
+                torre_creds=_creds("torre_email", "torre_pass"),
+                computrabajo_creds=_creds("ct_email", "ct_pass"),
+                indeed_creds=_creds("indeed_email", "indeed_pass"),
+                glassdoor_creds=_creds("gd_email", "gd_pass"),
                 on_progress=on_progress,
                 only_new=only_new,
             )

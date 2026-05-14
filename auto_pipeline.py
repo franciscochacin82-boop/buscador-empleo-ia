@@ -40,17 +40,26 @@ def run(
     smtp_pass: str = "",
     smtp_host: str = "smtp.gmail.com",
     smtp_port: int = 587,
-    keywords: str = "marketing comunicaciones",
+    keywords: str = "",
     torre_creds: dict = None,
     computrabajo_creds: dict = None,
+    indeed_creds: dict = None,
+    glassdoor_creds: dict = None,
     on_progress: Callable[[str], None] = None,
     only_new: bool = True,
 ) -> list[dict]:
     """
     Run the complete pipeline. Returns a list of result dicts.
 
-    torre_creds / computrabajo_creds: {"email": ..., "password": ...}
+    *_creds: {"email": ..., "password": ...}
     only_new: skip jobs already marked applied/interview/offer
+
+    Apply priority per job:
+      1. Email application (if contact email found in listing)
+      2. Indeed Easy Apply via Playwright (if Indeed creds provided)
+      3. Glassdoor Easy Apply via Playwright (if Glassdoor creds provided)
+      4. Torre.co / Computrabajo web apply (if those creds provided)
+      5. Mark as manual needed
     """
 
     def log(msg: str):
@@ -148,39 +157,31 @@ def run(
             applied_web = False
             source = job.get("source", "")
 
-            if source == "Torre.co" and torre_creds:
-                log("  🌐 Aplicando en Torre.co…")
-                try:
-                    from web_apply import apply_torre
-                    ok, msg = apply_torre(job["url"], torre_creds["email"], torre_creds["password"])
-                    result.update(method="torre_web", success=ok, message=msg)
-                    if ok:
-                        db.save_application(job["id"], "applied", letter)
-                        log(f"  ✅ {msg}")
-                    else:
-                        log(f"  ❌ {msg}")
-                    applied_web = True
-                except ImportError:
-                    log("  ⚠️  Playwright no instalado — omitiendo web apply")
+            web_map = {
+                "Indeed":    ("indeed_web",       indeed_creds,       "web_apply", "apply_indeed_job"),
+                "Glassdoor": ("glassdoor_web",     glassdoor_creds,    "web_apply", "apply_glassdoor_job"),
+                "Torre.co":  ("torre_web",         torre_creds,        "web_apply", "apply_torre"),
+                "Computrabajo": ("computrabajo_web", computrabajo_creds, "web_apply", "apply_computrabajo"),
+            }
 
-            elif source == "Computrabajo" and computrabajo_creds:
-                log("  🌐 Aplicando en Computrabajo…")
-                try:
-                    from web_apply import apply_computrabajo
-                    ok, msg = apply_computrabajo(
-                        job["url"],
-                        computrabajo_creds["email"],
-                        computrabajo_creds["password"],
-                    )
-                    result.update(method="computrabajo_web", success=ok, message=msg)
-                    if ok:
-                        db.save_application(job["id"], "applied", letter)
-                        log(f"  ✅ {msg}")
-                    else:
-                        log(f"  ❌ {msg}")
-                    applied_web = True
-                except ImportError:
-                    log("  ⚠️  Playwright no instalado — omitiendo web apply")
+            if source in web_map:
+                method_key, creds, module, fn_name = web_map[source]
+                if creds:
+                    log(f"  🌐 Aplicando en {source}…")
+                    try:
+                        import importlib
+                        mod = importlib.import_module(module)
+                        fn = getattr(mod, fn_name)
+                        ok, msg = fn(job["url"], creds["email"], creds["password"])
+                        result.update(method=method_key, success=ok, message=msg)
+                        if ok:
+                            db.save_application(job["id"], "applied", letter)
+                            log(f"  ✅ {msg}")
+                        else:
+                            log(f"  ❌ {msg}")
+                        applied_web = True
+                    except ImportError:
+                        log("  ⚠️  Playwright no instalado")
 
             if not applied_web:
                 result.update(
