@@ -1,5 +1,5 @@
 """
-Buscador de Empleo con IA — para profesionales de comunicaciones y marketing
+Buscador de Empleo con IA — encuentra y aplica a empleos en todo el mundo
 """
 import streamlit as st
 import os
@@ -39,7 +39,7 @@ db.init_db()
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("💼 Buscador de Empleo")
-    st.caption("Comunicaciones · Marketing · Venezuela")
+    st.caption("Busca y aplica a empleos en todo el mundo")
     st.divider()
 
     page = st.radio(
