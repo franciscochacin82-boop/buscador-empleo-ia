@@ -80,26 +80,6 @@ with st.sidebar:
         else:
             st.caption("Necesario para enviar solicitudes por email.")
 
-    # ── Indeed ──
-    with st.expander("🔵 Indeed — Easy Apply"):
-        st.caption("Necesario para auto-aplicar en Indeed con Easy Apply.")
-        for k in ["indeed_email", "indeed_pass"]:
-            st.session_state.setdefault(k, "")
-        st.text_input("Email de Indeed", key="indeed_email", placeholder="tucorreo@gmail.com")
-        st.text_input("Contraseña de Indeed", key="indeed_pass", type="password")
-        if st.session_state.get("indeed_email") and st.session_state.get("indeed_pass"):
-            st.success("✓ Indeed configurado")
-
-    # ── Glassdoor ──
-    with st.expander("🟢 Glassdoor — Easy Apply"):
-        st.caption("Necesario para auto-aplicar en Glassdoor con Easy Apply.")
-        for k in ["gd_email", "gd_pass"]:
-            st.session_state.setdefault(k, "")
-        st.text_input("Email de Glassdoor", key="gd_email", placeholder="tucorreo@gmail.com")
-        st.text_input("Contraseña de Glassdoor", key="gd_pass", type="password")
-        if st.session_state.get("gd_email") and st.session_state.get("gd_pass"):
-            st.success("✓ Glassdoor configurado")
-
     st.divider()
 
     # ── Stats ──
@@ -243,18 +223,14 @@ if page == "🚀 Auto-Aplicar":
         st.subheader("Estado")
         for label, ok in checks.items():
             st.markdown(f"{'✅' if ok else '❌'} {label}")
-        st.markdown(f"{'✅' if indeed_ready else '⬜'} 🔵 Indeed Easy Apply")
-        st.markdown(f"{'✅' if gd_ready else '⬜'} 🟢 Glassdoor Easy Apply")
+        st.markdown(f"{'✅' if indeed_ready else '⬜'} 🔵 Indeed")
+        st.markdown(f"{'✅' if gd_ready else '⬜'} 🟢 Glassdoor")
         if not checks["👤 Perfil completo"]:
             st.caption("→ Ve a **👤 Mi perfil** y completa tu información")
         if not checks["🔑 API Key de IA"]:
             st.caption("→ Pega tu Anthropic API Key en la barra lateral")
         if not checks["📧 Email configurado"]:
             st.caption("→ Abre **📧 Email** en la barra lateral")
-        if not indeed_ready:
-            st.caption("→ Abre **🔵 Indeed** en la barra lateral para Easy Apply")
-        if not gd_ready:
-            st.caption("→ Abre **🟢 Glassdoor** en la barra lateral para Easy Apply")
 
     with col_cfg:
         st.subheader("Configuración")
@@ -266,32 +242,42 @@ if page == "🚀 Auto-Aplicar":
 
     st.divider()
 
-    # ── Platform accounts (web apply) ─────────────────────────────────────
-    st.subheader("🌐 Cuentas en portales (para aplicar sin email)")
-    st.caption("Opcional — solo necesario para empleos que no tienen email de contacto visible.")
+    # ── Platform accounts ──────────────────────────────────────────────────
+    st.subheader("🔐 Cuentas en portales")
+    st.caption(
+        "Entra tus credenciales para que el sistema pueda buscar y aplicar en cada portal. "
+        "Las credenciales de Indeed y Glassdoor también mejoran los resultados de búsqueda "
+        "(evitan que el sitio bloquee los resultados)."
+    )
 
-    pcol1, pcol2 = st.columns(2)
-    with pcol1:
-        with st.container(border=True):
-            st.markdown("**Torre.co**")
-            if "torre_email" not in st.session_state:
-                st.session_state["torre_email"] = ""
-            if "torre_pass" not in st.session_state:
-                st.session_state["torre_pass"] = ""
-            st.text_input("Email", key="torre_email", placeholder="tu@email.com")
-            st.text_input("Contraseña", key="torre_pass", type="password")
-            st.caption("[Crear cuenta gratis →](https://torre.ai/register)")
+    # Initialize all keys
+    for k in ["torre_email", "torre_pass", "ct_email", "ct_pass",
+              "indeed_email", "indeed_pass", "gd_email", "gd_pass"]:
+        st.session_state.setdefault(k, "")
 
-    with pcol2:
-        with st.container(border=True):
-            st.markdown("**Computrabajo Venezuela**")
-            if "ct_email" not in st.session_state:
-                st.session_state["ct_email"] = ""
-            if "ct_pass" not in st.session_state:
-                st.session_state["ct_pass"] = ""
-            st.text_input("Email", key="ct_email", placeholder="tu@email.com")
-            st.text_input("Contraseña", key="ct_pass", type="password")
-            st.caption("[Crear cuenta gratis →](https://www.computrabajo.com.ve/registrarse)")
+    PORTALS = [
+        ("🔵 Indeed",               "indeed_email", "indeed_pass",
+         "Busca + Easy Apply", "https://secure.indeed.com/account/register"),
+        ("🟢 Glassdoor",            "gd_email",     "gd_pass",
+         "Busca + Easy Apply", "https://www.glassdoor.com/profile/join.htm"),
+        ("🗼 Torre.co",             "torre_email",  "torre_pass",
+         "Apply directo", "https://torre.ai/register"),
+        ("🇻🇪 Computrabajo VE",      "ct_email",     "ct_pass",
+         "Apply directo", "https://www.computrabajo.com.ve/registrarse"),
+    ]
+
+    cols = st.columns(2)
+    for idx, (name, e_key, p_key, usage, register_url) in enumerate(PORTALS):
+        with cols[idx % 2]:
+            with st.container(border=True):
+                configured = bool(st.session_state.get(e_key) and st.session_state.get(p_key))
+                st.markdown(f"**{name}** {'✅' if configured else ''}")
+                st.caption(usage)
+                st.text_input("Email", key=e_key, placeholder="tu@email.com",
+                              label_visibility="collapsed")
+                st.text_input("Contraseña", key=p_key, type="password",
+                              placeholder="contraseña", label_visibility="collapsed")
+                st.caption(f"[Crear cuenta →]({register_url})")
 
     st.divider()
 
@@ -451,14 +437,20 @@ elif page == "🔍 Buscar empleos":
             st.warning("Escribe al menos una palabra clave antes de buscar.")
             st.stop()
 
+        # Pass credentials if available — improves Indeed/Glassdoor results
+        _ie = st.session_state.get("indeed_email", "")
+        _ip = st.session_state.get("indeed_pass", "")
+        _ge = st.session_state.get("gd_email", "")
+        _gp = st.session_state.get("gd_pass", "")
+
         SCRAPERS = [
             ("Torre.co",         lambda: torre.search(keywords=search_kw)),
             ("Remote OK",        lambda: remoteok.search(keywords=search_kw)),
             ("Remotive",         lambda: remotive.search(keywords=search_kw)),
             ("Working Nomads",   lambda: workingnomads.search(keywords=search_kw)),
-            ("Indeed",           lambda: indeed.search(keywords=search_kw)),
+            ("Indeed",           lambda: indeed.search(keywords=search_kw, email=_ie, password=_ip)),
             ("We Work Remotely", lambda: wwr.search()),
-            ("Glassdoor",        lambda: glassdoor.search(keywords=search_kw)),
+            ("Glassdoor",        lambda: glassdoor.search(keywords=search_kw, email=_ge, password=_gp)),
             ("Computrabajo VE",  lambda: computrabajo.search()),
             ("Bumeran VE",       lambda: bumeran.search(keywords=search_kw)),
             ("OpcionEmpleo VE",  lambda: opcionempleo.search(keywords=search_kw)),

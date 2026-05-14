@@ -5,7 +5,8 @@ The site is JavaScript-rendered — requests-based scraping gets an empty shell.
 import re
 
 
-def search(keywords: str = "marketing", location: str = "", limit: int = 25) -> list[dict]:
+def search(keywords: str = "marketing", location: str = "", limit: int = 25,
+           email: str = "", password: str = "") -> list[dict]:
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -31,6 +32,17 @@ def search(keywords: str = "marketing", location: str = "", limit: int = 25) -> 
         )
         page = ctx.new_page()
         try:
+            # Log in if credentials provided — avoids login walls
+            if email and password:
+                try:
+                    page.goto("https://www.glassdoor.com/profile/login_input.htm", timeout=15000)
+                    page.fill('input[name="username"], input[type="email"]', email)
+                    page.fill('input[name="password"], input[type="password"]', password)
+                    page.click('button[type="submit"]')
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass  # proceed without login if it fails
+
             url = f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={keywords}&fromAge=14"
             if location:
                 url += f"&locT=C&locKeyword={location}"

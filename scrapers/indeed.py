@@ -11,7 +11,8 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", _HTML_RE.sub(" ", text or "")).strip()
 
 
-def search(keywords: str = "marketing", location: str = "", limit: int = 25) -> list[dict]:
+def search(keywords: str = "marketing", location: str = "", limit: int = 25,
+           email: str = "", password: str = "") -> list[dict]:
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -37,6 +38,19 @@ def search(keywords: str = "marketing", location: str = "", limit: int = 25) -> 
         )
         page = ctx.new_page()
         try:
+            # Log in if credentials provided — improves result quality
+            if email and password:
+                try:
+                    page.goto("https://secure.indeed.com/account/login", timeout=15000)
+                    page.fill('input[type="email"]', email)
+                    page.click('button[type="submit"]')
+                    import time; time.sleep(1.5)
+                    page.fill('input[type="password"]', password)
+                    page.click('button[type="submit"]')
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass  # proceed without login if it fails
+
             url = f"https://www.indeed.com/jobs?q={keywords}&sort=date"
             if location:
                 url += f"&l={location}"
